@@ -227,3 +227,22 @@ test('native BiquadFilterNode matches the export filters (preview = export)', as
     expect(maxDiff, `${f.type}`).toBeLessThan(1e-4);
   }
 });
+
+test('Cloudflare headers: security headers, wasm MIME, real 404s, config files hidden', async ({ request }) => {
+  test.skip(process.env.E2E_HOST !== 'cloudflare', 'only meaningful when served by wrangler');
+  const home = await request.get('./');
+  expect(home.status()).toBe(200);
+  expect(home.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
+  expect(home.headers()['x-content-type-options']).toBe('nosniff');
+  const html = await home.text();
+  const wasm = /assets\/mp3-[\w-]+\.wasm/.exec(await (await request.get('./sw.js')).text())![0];
+  const w = await request.get(`./${wasm}`);
+  expect(w.headers()['content-type']).toBe('application/wasm');
+  const missing = await request.get('./assets/does-not-exist-123.js');
+  expect(missing.status()).toBe(404);
+  expect(missing.headers()['content-type'] ?? '').not.toContain('text/html');
+  for (const hidden of ['./_headers', './.assetsignore']) expect((await request.get(hidden)).status()).toBe(404);
+  const js = /assets\/index-[\w-]+\.js/.exec(html)![0];
+  expect((await request.get(`./${js}.map`)).status()).toBe(404);
+});
+

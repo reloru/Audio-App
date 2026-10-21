@@ -1,0 +1,12 @@
+# Cloudflare Workers static-assets response headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+# Caching is left at the platform default (revalidate every request): the service worker precaches
+# everything, so long browser-cache lifetimes would add nothing and could pin stale 404s.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), geolocation=(), microphone=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
+  # script-src is not restricted: compiling the LAME .wasm under a script-src policy needs
+  # 'wasm-unsafe-eval', which older Safari versions do not recognise.
+  Content-Security-Policy: object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'

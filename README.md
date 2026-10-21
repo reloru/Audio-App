@@ -6,7 +6,7 @@ Bounce is a free, mobile-first web app for editing the MP3 and WAV files you dow
 
 ## Use it
 
-Once GitHub Pages is enabled (see [Deploy](#deploy)), open **https://reloru.github.io/Audio-App/** on your phone.
+Once the Cloudflare Worker is connected (see [Deploy](#deploy)), open **https://bounce.&lt;your-subdomain&gt;.workers.dev** on your phone. Cloudflare shows the exact address after the first build.
 
 - **iPhone / iPad (Safari):** Share → **Add to Home Screen**. This runs it full-screen like an app. It also keeps your projects safe: Safari clears website storage after 7 days without use, but Home Screen apps are exempt.
 - **Android (Chrome):** menu → **Install app**. Once installed, Bounce registers as a share target for audio files (the Web Share Target API), so you can share a file from another app straight into it. This hasn't been tested on a device yet.
@@ -73,9 +73,20 @@ tests/          Vitest unit tests      e2e/  Playwright tests
 
 ## Deploy
 
-`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`. One-time setup in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**. `.github/workflows/ci.yml` runs the type check, unit tests and end-to-end tests on pushes and pull requests.
+Bounce is hosted on **Cloudflare Workers** as a static-assets-only Worker (`wrangler.jsonc`, no Worker script). Requests for static assets are free and unlimited, as long as the opt-in Workers Caching feature stays off ([Cloudflare docs](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)). The response headers are set in `public/_headers`.
 
-The build uses relative URLs, so `dist/` can be served from any static host and any sub-path.
+**One-time setup:** in the Cloudflare dashboard, create a Worker from the GitHub repository using Workers Builds ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/)). Use these settings:
+
+- Build command: `npm run build`.
+- Deploy command: `npx wrangler deploy` (the default).
+- Production branch: `main`.
+- Turn on builds for non-production branches. Every branch, including Claude's `claude-code/…` branches, then gets its own preview URL ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)), and Cloudflare posts the URL as a comment on the branch's pull request.
+
+Each preview URL is a separate origin, so it starts with an empty project library.
+
+**Local check of the production setup:** `npm run preview:cf` builds the app and serves it with `wrangler dev`, the same asset server and headers as production. `npm run test:e2e:cf` runs the end-to-end tests against it, and CI does the same.
+
+`.github/workflows/ci.yml` runs the type check, the unit tests and the end-to-end tests (on the Cloudflare runtime) for pushes and pull requests. The build uses relative URLs, so `dist/` also works on any other static host.
 
 ## Licence
 

@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:cf": "E2E_HOST=cloudflare playwright test",
+    "preview:cf": "vite build && wrangler dev",
     "check": "npm run typecheck && npm test && vite build && playwright test"
   },
   "dependencies": {
@@ -27,6 +29,7 @@
     "@types/node": "24.19.2",
     "typescript": "7.0.2",
     "vite": "8.3.4",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "4.148.0"
   }
 }

@@ -125,6 +125,9 @@ export function EditPanel({ store }: { store: EditorStore }) {
             </button>
           ))}
         </div>
+        <p class="tiny faint" style={{ margin: 0 }}>
+          iPhone ringtones can be up to 30 s: export the clip, then open it in GarageBand from Files and share it as a ringtone (Apple Support).
+        </p>
         <button
           class="btn block"
           disabled={!sel}

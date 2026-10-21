@@ -1,0 +1,14 @@
+{
+  // Static-assets-only Worker: no script, so every request is served from dist/ at no cost.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bounce",
+  "compatibility_date": "2026-10-06",
+  "workers_dev": true,
+  // Per-branch preview URLs from Workers Builds (needs Wrangler >= 4.135.0).
+  "preview_urls": true,
+  "assets": {
+    "directory": "./dist",
+    // A missing file must 404, never fall back to index.html (the service worker caches by URL).
+    "not_found_handling": "none"
+  }
+}

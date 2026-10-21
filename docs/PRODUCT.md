@@ -41,13 +41,22 @@ On the question "why not just use Suno's editor": Suno's help pages do not say w
 - **On-device AI stem separation**: Suno already provides stems. Running a separation model inside a phone browser is a heavy undertaking (a design judgement, not measured here).
 - **Fetching audio from Suno share links**: this would bypass Suno's download quota. Bounce only opens files you downloaded yourself.
 - **De-noising or "de-shimmer"**: EQ can soften harsh bands but cannot remove artifacts. Regenerating in Suno is often the better fix.
-- **Changing tempo without pitch, or pitch without tempo**: good results need a phase vocoder or similar. It is on the roadmap, not shipped half-done.
-- **AAC/M4R** (iPhone ringtone format): browsers cannot reliably encode AAC across platforms, so export is MP3 or WAV.
+- **Changing tempo without pitch, or pitch without tempo.** Good results need a phase vocoder or similar. The reference library, Rubber Band, is GPL or commercial. The GPL FAQ treats code delivered to a visitor's browser as distributed, so shipping its WebAssembly build (`rubberband-wasm`, GPLv2) would bring GPL obligations into this MIT app. Running it on a server does not ([GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#UnreleasedMods)). See §7 for the server option.
+- **AAC/M4R export.** Not needed for ringtones. Apple's documented route is GarageBand on the iPhone: open an audio file from Files and export it as a ringtone, which "can be up to 30 seconds long" ([Apple Support 120692](https://support.apple.com/en-us/120692)). A 30 s MP3 clip from Bounce is enough. Browser AAC encoding is also uneven:
+  - Chrome encodes AAC only through the operating system's encoder (Windows, macOS, Android) ([Chromium source](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/base/media_switches.cc)).
+  - Safari 26+ produces a wrong decoder configuration, an open bug as of 2026-10-16 ([WebKit 302253](https://bugs.webkit.org/show_bug.cgi?id=302253)).
 - **Overlapping multitrack timeline**: the arrangement is a sequence of clips. Stems are layers of a clip, not free-floating tracks.
 
 ## 4. Technical decisions and their basis
 
+- **Service-worker freshness.** Navigations are fetched with `cache: 'no-cache'`, and the precache is filled with `cache: 'reload'`. Neither relies on the host's HTTP caching, so a deploy shows up on the next launch.
 - **Installable web app (PWA), no app store.** It runs on iOS and Android from one codebase, works offline through a service worker, and keeps files in IndexedDB. WebKit deletes script-writable storage, IndexedDB included, after 7 days of Safari use without interaction with the site; Home Screen web apps are exempt ([WebKit: Tracking Prevention](https://webkit.org/tracking-prevention/)). The library therefore asks iOS users to add the app to the Home Screen.
+- **Hosting: Cloudflare Workers (static assets), not GitHub Pages.** Reasons, all checked on 2026-10-21:
+  - **Own origin.** Browser storage is per origin. Every project site under `reloru.github.io` shares one origin, so any other Pages project on that account could read Bounce's IndexedDB song library. A Worker gets its own hostname.
+  - **Preview URLs.** Workers Builds gives every branch its own preview URL and posts it on the pull request ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)). GitHub Pages allows one site per repository, and its PR preview input is alpha and not public.
+  - **Response headers.** `public/_headers` sets them; GitHub Pages cannot (a GitHub staff answer in community discussion #84963). GitHub Pages also sends `max-age=600` on every file (measured).
+  - **Cost.** Static-asset requests are free and unlimited ([Cloudflare docs](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)).
+  - **Cloudflare's own guidance** is to "Start new projects with Workers" ([Pages docs](https://developers.cloudflare.com/pages/)). Pages also answers a missing asset with the HTML shell (observed), which a service worker could cache under a script URL. The Worker is set to `not_found_handling: "none"`, so missing files return a real 404.
 - **Decode at the file's native rate.** `decodeAudioData` resamples to the context's sample rate (W3C Web Audio API, decodeAudioData step 5). Bounce therefore parses WAV itself, and decodes MP3 on an `OfflineAudioContext` created at the rate read from the MP3 frame header.
 - **One export pipeline, mirrored by the preview.** Export runs in TypeScript, so it is deterministic and unit-testable: arrangement → speed/SRC → EQ → width → gain → fades → limiter → meter → encoder. The live preview uses Web Audio nodes driven by the same parameters. The EQ uses the exact W3C BiquadFilterNode formulas (§1.13.5), and an end-to-end test checks that Chromium's native filter output matches the export filters to within 1e-4. The limiter in the preview is the same TypeScript class, running in an AudioWorklet.
 - **Loudness: ITU-R BS.1770-5.** K-weighting coefficients for any sample rate are derived algebraically from the Recommendation's 48 kHz tables (Tables 1–2), which they reproduce exactly at 48 kHz. Gating uses 400 ms blocks with 75% overlap, a −70 LKFS absolute gate and a −10 LU relative gate. True peak uses the Annex 2 4× FIR interpolator. Loudness range follows EBU Tech 3342. Momentary (0.4 s) and short-term (3 s) windows follow EBU Tech 3341.
@@ -72,7 +81,7 @@ These are automated and run in CI:
 - **Beat tracker:** tempo within 1 BPM and median beat error under 20 ms on synthetic 96/120/140 BPM grooves.
 - **WAV, ID3 and MP3:** round trips, reading ffmpeg-written ID3v2.3/2.4 tags with cover art, and ffprobe validation of exported files (codec, bitrate, tags, cover, duration).
 - **Timeline:** 200 random edit sequences checked against a frame-by-frame reference model.
-- **End to end (Chromium, 390×844 touch viewport):**
+- **End to end (Chromium, 390×844 touch viewport), served by `wrangler dev` (the Cloudflare runtime) as well as `vite preview`:**
   - Import of a tagged MP3 and of a pair of stems.
   - Select, cut, undo/redo, trim silence and fade.
   - Measure, normalise to −14 LUFS, and export MP3 320 and WAV 24-bit. ffmpeg independently measures the WAV at −14 ±0.15 LUFS with true peak ≤ −0.9 dBTP.
@@ -88,4 +97,23 @@ These are automated and run in CI:
 
 ## 7. Roadmap candidates
 
-Phase-vocoder time-stretch and pitch-shift; lossless MP3 trimming at frame boundaries for trim-only edits; key detection; a reverb for "slowed + reverb"; `file_handlers` for desktop "Open with".
+Lossless MP3 trimming at frame boundaries for trim-only edits; key detection; a reverb for "slowed + reverb"; `file_handlers` for desktop "Open with".
+
+**Optional cloud tools on Cloudflare Containers.** The owner has the Workers Paid plan. This would break the "nothing is uploaded" promise for the feature that uses it, so it could only ever be an explicit opt-in.
+
+| Fact | Source |
+|---|---|
+| Containers are generally available on Workers Paid. Included each month: 25 GiB-hours of memory, 375 vCPU-minutes and 200 GB-hours of disk, billed in 10 ms steps. | [Pricing](https://developers.cloudflare.com/containers/platform/pricing/) |
+| Memory and disk are billed at the provisioned size for as long as the instance is awake. CPU is billed on active use only. | [Pricing](https://developers.cloudflare.com/containers/platform/pricing/) |
+| The largest default instance type, standard-4, has 4 vCPU and 12 GiB. There are no GPUs. | [Limits](https://developers.cloudflare.com/containers/platform/limits/) |
+| Cold starts are often 1–3 s. | [Architecture](https://developers.cloudflare.com/containers/concepts/architecture/) |
+| Request bodies are limited to 100 MB on Free and Pro zones, which fits one 8-minute WAV stem. | [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) |
+
+Measured job times for a 4-minute song on 4 vCPUs (from the research run, not on Cloudflare):
+- ffmpeg + Rubber Band, tempo ×1.1: 7.8 s.
+- ffmpeg + Rubber Band, +2 semitones at quality settings: 15.8 s.
+- Demucs htdemucs stem separation on CPU: 103 s, about 1.9 GiB of memory.
+
+Derived from those numbers, not stated by Cloudflare: the memory allowance gives about 6 instance-hours a month on standard-1 (4 GiB), so hundreds of short tempo or pitch jobs fit, provided the instance sleeps soon after each job.
+
+The candidate worth building is **studio-grade tempo and pitch change** (Rubber Band on the server). Stem separation adds little because Suno already provides stems. ffmpeg's `loudnorm` adds nothing over the on-device normaliser: its linear mode applies only a gain, and only when no limiting would be needed.

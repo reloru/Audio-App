@@ -9,7 +9,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(PRECACHE.map(scoped)))
+      // cache: 'reload' bypasses the browser HTTP cache so a new version never precaches an old shell.
+      .then((c) => c.addAll(PRECACHE.map((p) => new Request(scoped(p), { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -32,12 +33,15 @@ self.addEventListener('fetch', (event) => {
   }
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
-    // Network first so new versions arrive; cached shell when offline.
+    // Network first so new versions arrive; cached shell when offline. 'no-cache' revalidates even
+    // when the host sends a max-age, so a deploy is visible on the next launch.
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(scoped('./index.html'), copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(scoped('./index.html'), copy));
+          }
           return res;
         })
         .catch(() => caches.match(scoped('./index.html')).then((r) => r || caches.match(scoped('./')))),
@@ -49,7 +53,9 @@ self.addEventListener('fetch', (event) => {
       (hit) =>
         hit ||
         fetch(req).then((res) => {
-          if (res.ok && res.type === 'basic') {
+          // Some hosts answer a missing file with the HTML shell; never store that under a script URL.
+          const html = (res.headers.get('content-type') || '').startsWith('text/html');
+          if (res.ok && res.type === 'basic' && !html) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(req, copy));
           }
