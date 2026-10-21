@@ -73,14 +73,14 @@ tests/          Vitest unit tests      e2e/  Playwright tests
 
 ## Deploy
 
-Bounce is hosted on **Cloudflare Workers** as a static-assets-only Worker (`wrangler.jsonc`, no Worker script). Requests for static assets are free and unlimited, as long as the opt-in Workers Caching feature stays off ([Cloudflare docs](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)). The response headers are set in `public/_headers`.
+Bounce is hosted on **Cloudflare Workers** as a static-assets-only Worker (`wrangler.jsonc`, no Worker script). Requests for static assets are free and unlimited ([Cloudflare docs](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)), as long as the opt-in Workers Caching feature stays off ([pricing](https://developers.cloudflare.com/workers/platform/pricing/)). The response headers are set in `public/_headers`.
 
 **One-time setup:** in the Cloudflare dashboard, create a Worker from the GitHub repository using Workers Builds ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/)). Use these settings:
 
 - Build command: `npm run build`.
 - Deploy command: `npx wrangler deploy` (the default).
 - Production branch: `main`.
-- Turn on builds for non-production branches. Every branch, including Claude's `claude-code/…` branches, then gets its own preview URL ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)), and Cloudflare posts the URL as a comment on the branch's pull request.
+- Turn on preview builds for non-production branches, and leave the Preview command at its default, `npx wrangler preview`. Every branch, including Claude's `claude-code/…` branches, then gets its own preview URL ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)), and Cloudflare posts the URL as a comment on the branch's pull request.
 
 Each preview URL is a separate origin, so it starts with an empty project library.
 

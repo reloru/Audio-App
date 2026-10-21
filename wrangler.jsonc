@@ -4,8 +4,11 @@
   "name": "bounce",
   "compatibility_date": "2026-10-06",
   "workers_dev": true,
-  // Per-branch preview URLs from Workers Builds (needs Wrangler >= 4.135.0).
+  // workers.dev Preview/Version URLs.
   "preview_urls": true,
+  // Required (may be empty) by `wrangler preview`, the default Workers Builds command for
+  // non-production branches (Wrangler >= 4.135.0).
+  "previews": {},
   "assets": {
     "directory": "./dist",
     // A missing file must 404, never fall back to index.html (the service worker caches by URL).

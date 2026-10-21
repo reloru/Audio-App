@@ -36,7 +36,9 @@ self.addEventListener('fetch', (event) => {
     // Network first so new versions arrive; cached shell when offline. 'no-cache' revalidates even
     // when the host sends a max-age, so a deploy is visible on the next launch.
     event.respondWith(
+      // Some older engines reject a RequestInit on a navigation request; fall back to a plain fetch.
       fetch(req, { cache: 'no-cache' })
+        .catch(() => fetch(req))
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
