@@ -218,8 +218,11 @@ describe.skipIf(!dockerOk)('/api through the Worker and Durable Objects (wrangle
     const limited = await post();
     expect(limited.status).toBe(503);
     expect(((await limited.json()) as { error: string }).error).toMatch(/today’s limit/);
-    expect((await post()).status).toBe(503);
-    // Fifth job request from this address within a minute.
-    expect((await post()).status).toBe(429);
+    // The per-IP limit is 4 per minute in windows aligned to the wall clock (Miniflare emulates this),
+    // so if a minute boundary falls in this test up to 4 more requests pass before the 429.
+    const statuses: number[] = [];
+    while (statuses.length < 10 && statuses.at(-1) !== 429) statuses.push((await post()).status);
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.slice(0, -1).every((s) => s === 503)).toBe(true);
   });
 });
