@@ -18,10 +18,14 @@ export default defineConfig({
     ...devices['Pixel 7'],
     viewport: { width: 390, height: 844 },
     acceptDownloads: true,
+    // Without this, about 1 in 20 runs in Claude cloud sessions froze the page on opening the editor:
+    // the main thread blocked in native code (CDP Debugger.pause could not interrupt it). 60 repeats
+    // with the GPU disabled passed.
+    launchOptions: { args: ['--disable-gpu'] },
   },
   webServer: {
     command: cloudflare
-      ? 'npx vite build && npx wrangler dev --port 4173 --ip 127.0.0.1'
+      ? 'npx vite build && npx wrangler dev --port 4173 --ip 127.0.0.1 --enable-containers=false'
       : 'npx vite build && npx vite preview --port 4173 --strictPort',
     url: baseURL,
     env: { WRANGLER_SEND_METRICS: 'false' },

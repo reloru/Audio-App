@@ -2,8 +2,11 @@
 import { Player } from '../audio/player';
 import type { LoudnessResult } from '../dsp/loudness';
 import { ArrangementReader, type LayerAudio } from '../engine/render';
-import { exportProject, analyzeProject, exportRange, type ExportResult, type ExportStage } from '../engine/export';
+import { exportProject, analyzeProject, exportRange, safeFileName, type ExportResult, type ExportStage } from '../engine/export';
 import { createMp3Sink, withWakeLock, yieldToUi } from '../engine/browser';
+import { renderCloudInput } from '../engine/cloudInput';
+import { MAX_SECONDS, MAX_UPLOAD_BYTES, describeParams, type StretchParams } from '../cloud/params';
+import { deleteJob, downloadResult, submitJob, waitForJob } from '../cloud/client';
 import { History, editState, newProject, uid, type EditState } from '../model/project';
 import { DEFAULT_XFADE_MS } from '../model/presets';
 import {
@@ -20,11 +23,19 @@ import {
 } from '../model/timeline';
 import type { FadeSpec, Id, Layer, Project, Selection, Source } from '../model/types';
 import { putProject } from '../storage/db';
-import { decodeIntoProject, decodeStems, loadCover, type LoadedLayer, type ProgressFn } from './importer';
+import { decodeIntoProject, decodeStems, importFiles, loadCover, type CreatedProject, type LoadedLayer, type ProgressFn } from './importer';
 import { toast, errorText } from './toast';
 
 export type SnapMode = 'off' | 'beat' | 'bar';
 export type Tab = 'edit' | 'mix' | 'sound' | 'loudness' | 'export';
+
+export type CloudStage = 'render' | 'upload' | 'process' | 'download' | 'import';
+
+export interface CloudState {
+  stage: CloudStage | 'error';
+  progress: number;
+  error?: string;
+}
 
 export interface ExportState {
   stage: ExportStage | 'encode' | 'done' | 'error';
@@ -54,6 +65,7 @@ export class EditorStore {
     progress: 0,
   };
   exportState: ExportState | null = null;
+  cloud: CloudState | null = null;
   busy: { text: string; progress: number } | null = null;
 
   private listeners = new Set<() => void>();
@@ -62,6 +74,7 @@ export class EditorStore {
   private mergeAt = 0;
   private beatsCache: { key: string; beats: TimelineBeat[] } = { key: '', beats: [] };
   private exportAbort: AbortController | null = null;
+  private cloudAbort: AbortController | null = null;
   version = 0;
 
   constructor(project: Project, layers: Map<Id, LoadedLayer>) {
@@ -622,8 +635,95 @@ export class EditorStore {
     this.emit();
   }
 
+  // ------------------------------------------------------------ cloud tempo/pitch
+  /**
+   * Uploads the arranged song, changes tempo/pitch on the server (Rubber Band) and imports the
+   * result as a new project with this project's settings. The upload is scaled to −6 dBFS peak
+   * and the new layer's level undoes that exactly.
+   */
+  async runCloudStretch(params: StretchParams, onCreated: (c: CreatedProject, clipped: boolean) => void): Promise<void> {
+    if (this.cloudAbort) return;
+    this.player.pause();
+    const abort = (this.cloudAbort = new AbortController());
+    const set = (stage: CloudStage, progress: number) => {
+      this.cloud = { stage, progress };
+      this.emit();
+    };
+    let jobId: string | null = null;
+    try {
+      await withWakeLock(async () => {
+        set('render', 0);
+        const input = await renderCloudInput(this.project, this.audio, { onProgress: (f) => set('render', f), signal: abort.signal, yieldFn: yieldToUi });
+        if (input.seconds > MAX_SECONDS) throw new Error(`Cloud processing takes songs up to ${Math.floor(MAX_SECONDS / 60)}:${String(MAX_SECONDS % 60).padStart(2, '0')}.`);
+        if (input.bytes > MAX_UPLOAD_BYTES) throw new Error(`At ${(input.sampleRate / 1000).toFixed(1)} kHz this song is too large to upload (${Math.round(input.bytes / 1e6)} MB of ${MAX_UPLOAD_BYTES / 1e6} MB).`);
+        const wav = new Blob(input.parts as BlobPart[], { type: 'audio/wav' });
+        set('upload', 0);
+        jobId = await submitJob(wav, params, (f) => set('upload', f), abort.signal);
+        set('process', 0);
+        await waitForJob(jobId, (f) => set('process', f), abort.signal);
+        set('download', 0);
+        const data = await downloadResult(jobId, (f) => set('download', f), abort.signal);
+        void deleteJob(jobId);
+        jobId = null;
+        set('import', 0);
+        const created = await this.importCloudResult(data, params, -input.gainDb, (_t, f) => set('import', f));
+        this.cloud = null;
+        this.emit();
+        onCreated(created, hasFullScaleSamples(created));
+      });
+    } catch (e) {
+      if (jobId) void deleteJob(jobId);
+      this.cloud = abort.signal.aborted ? null : { stage: 'error', progress: 0, error: errorText(e) };
+      this.emit();
+    } finally {
+      this.cloudAbort = null;
+    }
+  }
+
+  private async importCloudResult(data: ArrayBuffer, params: StretchParams, layerGainDb: number, progress: ProgressFn): Promise<CreatedProject> {
+    const src = this.project;
+    const label = describeParams(params);
+    const name = `${src.name} (${label})`;
+    const file = new File([data], `${safeFileName(name)}.wav`, { type: 'audio/wav' });
+    const [created] = await importFiles([file], 'stems', progress);
+    const p = created.project;
+    Object.assign(p, {
+      name,
+      eq: structuredClone(src.eq),
+      width: src.width,
+      speed: src.speed,
+      gainDb: src.gainDb,
+      master: { ...src.master },
+      fadeIn: { ...src.fadeIn },
+      fadeOut: { ...src.fadeOut },
+      meta: { ...src.meta, title: `${src.meta.title || src.name} (${label})` },
+      exportSettings: { ...src.exportSettings, range: 'all' as const },
+    });
+    p.sources[0].name = name;
+    p.sources[0].layers[0].gainDb = Math.round(layerGainDb * 100) / 100;
+    await putProject(p);
+    return created;
+  }
+
+  cancelCloud(): void {
+    this.cloudAbort?.abort();
+  }
+
+  dismissCloud(): void {
+    this.cloud = null;
+    this.emit();
+  }
+
   dispose(): void {
+    this.cloudAbort?.abort();
     this.player.stop();
     void this.flush();
   }
+}
+
+/** True when any sample sits at 16-bit full scale, i.e. the processed audio was clipped. */
+function hasFullScaleSamples(c: CreatedProject): boolean {
+  const limit = 32767 / 32768;
+  for (const l of c.layers.values()) for (const ch of l.pcm.channels) for (let i = 0; i < ch.length; i++) if (Math.abs(ch[i]) >= limit) return true;
+  return false;
 }
