@@ -75,7 +75,7 @@ export function Library({ onOpen, onCreated }: { onOpen: (id: string) => void; o
               <div class="small dim">Pocket editor for Suno songs</div>
             </div>
           </div>
-          <p>Trim, cut, loop, fix endings, remix stems and master to streaming loudness — then export MP3 or WAV. Everything runs on this device; nothing is uploaded.</p>
+          <p>Trim, cut, loop, fix endings, remix stems and master to streaming loudness — then export MP3 or WAV. Everything runs on this device; nothing is uploaded unless you choose cloud tempo/pitch.</p>
           <button class="btn primary block" style={{ minHeight: '52px', fontSize: '16px' }} onClick={() => fileRef.current?.click()}>
             <IconUpload /> Open MP3 or WAV
           </button>

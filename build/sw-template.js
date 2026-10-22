@@ -32,6 +32,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // Cloud job status and results are live data: never answer them from the cache.
+  if (url.pathname.startsWith(new URL('./api/', self.registration.scope).pathname)) return;
   if (req.mode === 'navigate') {
     // Network first so new versions arrive; cached shell when offline. 'no-cache' revalidates even
     // when the host sends a max-age, so a deploy is visible on the next launch.

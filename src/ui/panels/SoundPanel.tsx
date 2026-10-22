@@ -6,10 +6,12 @@ import { EQ_PRESETS, FLAT_EQ, SPEED_PRESETS } from '../../model/presets';
 import type { EqSettings } from '../../model/types';
 import { Slider, logScale } from '../components/controls';
 import { fmtDb, fmtHz } from '../format';
+import type { CreatedProject } from '../importer';
+import { CloudCard } from './CloudCard';
 
 const sameEq = (a: EqSettings, b: EqSettings) => JSON.stringify(a) === JSON.stringify(b);
 
-export function SoundPanel({ store }: { store: EditorStore }) {
+export function SoundPanel({ store, onOpen }: { store: EditorStore; onOpen: (c: CreatedProject) => void }) {
   const p = store.project;
   const eq = p.eq;
   const setEq = (fn: (e: EqSettings) => void, merge: string) =>
@@ -144,6 +146,8 @@ export function SoundPanel({ store }: { store: EditorStore }) {
           {` · length ${(store.sec(store.length) / 60).toFixed(0)}:${String(Math.round(store.sec(store.length) % 60)).padStart(2, '0')}`}
         </div>
       </div>
+
+      <CloudCard store={store} onOpen={onOpen} />
 
       <div class="card stack">
         <h3>Output gain</h3>

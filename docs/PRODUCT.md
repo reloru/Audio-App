@@ -28,10 +28,11 @@ This document records the research behind the feature set, the decisions that fo
 | Harsh or muddy tone, low rumble | **Sound** tab: high-pass, low shelf, mid peak, high shelf and low-pass, with presets and a live response curve |
 | Check mono compatibility, or widen/narrow the image | **Stereo width**, including **Mono check** |
 | "Slowed" or "sped up" versions | **Speed** (varispeed: tempo and pitch together), showing the resulting semitones and BPM |
+| A different tempo in the same key, or a different key at the same tempo (to suit a singer, or to mix with other tracks) | **Tempo & pitch (cloud)**: Rubber Band on a Cloudflare Container, opt-in per upload; the result opens as a new project (§4) |
 | Release-ready loudness for streaming | **Loudness** tab: BS.1770-5 measurement, target presets, true-peak limiter, and a preview of what Spotify will do on playback |
 | Correct tags and cover art | ID3v2.3 tags (title, artist, album, year, genre, track, BPM, comment, lyrics, cover) in MP3; RIFF INFO plus an `id3 ` chunk in WAV. Existing Suno tags and cover art are read and kept. |
 | Get the file out of the phone | Web Share (save to Files, AirDrop, messaging apps) or a download link. A player on the result card lets you check the file first. |
-| Work without signal; keep songs private | Installable offline web app. All processing runs on the device and files are stored in IndexedDB. |
+| Work without signal; keep songs private | Installable offline web app. All processing runs on the device and files are stored in IndexedDB. The only exception is the cloud tempo/pitch tool, which uploads only after the user confirms. |
 
 On the question "why not just use Suno's editor": Suno's help pages do not say whether an edited copy counts as a separate song for download limits, so this document does not claim it does. What is certain is that local edits cost no credits and no downloads, work offline, and add things Suno's download does not: loudness normalisation with true-peak limiting, stem remixing, MP3/WAV format choice, and tags.
 
@@ -41,7 +42,7 @@ On the question "why not just use Suno's editor": Suno's help pages do not say w
 - **On-device AI stem separation**: Suno already provides stems. Running a separation model inside a phone browser is a heavy undertaking (a design judgement, not measured here).
 - **Fetching audio from Suno share links**: this would bypass Suno's download quota. Bounce only opens files you downloaded yourself.
 - **De-noising or "de-shimmer"**: EQ can soften harsh bands but cannot remove artifacts. Regenerating in Suno is often the better fix.
-- **Changing tempo without pitch, or pitch without tempo.** Good results need a phase vocoder or similar. The reference library, Rubber Band, is GPL or commercial. The GPL FAQ treats code delivered to a visitor's browser as distributed, so shipping its WebAssembly build (`rubberband-wasm`, GPLv2) would bring GPL obligations into this MIT app. Running it on a server does not ([GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#UnreleasedMods)). See §7 for the server option.
+- **Changing tempo without pitch, or pitch without tempo, on the device.** Good results need a phase vocoder or similar. The reference library, Rubber Band, is GPL or commercial. The GPL FAQ treats code delivered to a visitor's browser as distributed, so shipping its WebAssembly build (`rubberband-wasm`, GPLv2) would bring GPL obligations into this MIT app. Running it on a server does not ([GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#UnreleasedMods)), so it is offered as an opt-in server feature instead (§4).
 - **AAC/M4R export.** Not needed for ringtones. Apple's documented route is GarageBand on the iPhone: open an audio file from Files and export it as a ringtone, which "can be up to 30 seconds long" ([Apple Support 120692](https://support.apple.com/en-us/120692)). A 30 s MP3 clip from Bounce is enough. Browser AAC encoding is also uneven:
   - Chrome encodes AAC only through the operating system's encoder (Windows, macOS, Android) ([Chromium source](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/base/media_switches.cc)).
   - Safari 26+ produces a wrong decoder configuration, an open bug as of 2026-10-16 ([WebKit 302253](https://bugs.webkit.org/show_bug.cgi?id=302253)).
@@ -49,11 +50,20 @@ On the question "why not just use Suno's editor": Suno's help pages do not say w
 
 ## 4. Technical decisions and their basis
 
+- **Deploys from GitHub Actions, not Workers Builds** (since 2026-10-22). The `deploy` job runs `wrangler deploy` on pushes to `main` only after the tests pass, so a red build never reaches production. The cost is that branches no longer get preview URLs. Cloudflare does not generate Version URLs for Workers with Durable Objects, which includes Containers ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)), and its Previews support for Containers is described as partial ([docs](https://developers.cloudflare.com/workers/previews/resources/)).
+- **Cloud tempo/pitch.** Rubber Band 3.3.0 (`rubberband --fine`, the R3 engine) in a container, one Durable Object and one container instance per job:
+  - **What is uploaded.** The arrangement only (clips, seam crossfades, stem mix), as 16-bit WAV at the project rate. Speed, EQ, width, gain, fades and loudness settings are not applied; they are copied to the new project, so the result sounds like the original with the tempo or key changed. Stems are mixed into one layer.
+  - **Headroom.** By default the Rubber Band CLI restarts with a lower gain when its output clips, without reporting the gain. Measured with a full-scale square wave: it lowered the gain, logged that it would not go below 0.75, and the 16-bit output still reached 0 dBFS. Bounce therefore scales the upload to a −6 dBFS peak (at most −12 dB, the top of the layer-level range), runs with `--ignore-clipping`, and sets the new layer's level to undo the scaling exactly. If the stretch still overshoots, 16-bit output is clamped rather than wrapped (measured), and the app warns when the result contains full-scale samples.
+  - **Progress.** The CLI prints 0–99 % twice: a study pass (about 0.1 s for 500 s of audio, measured) and then the processing pass. The server reports the processing pass only.
+  - **Instance type: `basic`** (¼ vCPU, 1 GiB, 4 GB disk; [limits](https://developers.cloudflare.com/containers/platform/limits/)). Measured in Docker on the build machine with 500 s of 48 kHz stereo: 47–54 s of CPU per job (pitch +2 with formant preservation; tempo ×0.5), peak memory 11 MiB, and a job completes under a 256 MiB memory limit. With the CPU capped at ¼ the same job took 196 s. Cloudflare's CPU speed was not measured, so times there are unverified. Memory is billed for as long as the instance is awake ([pricing](https://developers.cloudflare.com/containers/platform/pricing/)), so `basic` costs a quarter of `standard-1` per second for about twice the processing time.
+  - **Lifetime and privacy.** The job's container is destroyed when the app deletes the job after downloading the result or on cancel. Otherwise it stops 5 minutes after its Durable Object goes idle (`setInactivityTimeout`), and an alarm ends every job 30 minutes after it starts. Container disk is ephemeral: "When a Container instance goes to sleep, the next time it starts, it uses a fresh disk from the container image" ([Containers FAQ](https://developers.cloudflare.com/containers/faq/#is-disk-persistent-what-happens-to-my-disk-when-my-container-sleeps)). The container has no Internet access (`enableInternet: false`).
+  - **Abuse and cost limits.** Requests are validated before anything is started. Then come a per-IP limit of 4 new jobs per minute (the Workers rate-limiting binding, which counts per Cloudflare location and is approximate; [docs](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)), a global limit of 100 jobs per UTC day (a Durable Object counter), and at most 3 concurrent containers (`max_instances`). Unknown job ids answer 404 without starting a container.
+  - **Limits on input.** 500 s and 100 MB. The 100 MB matches the Workers request-body limit on Free and Pro zones ([limits](https://developers.cloudflare.com/workers/platform/limits/)). 500 s of 48 kHz 16-bit stereo is 96 MB, and the app checks the actual byte size, so higher sample rates allow less time.
 - **Service-worker freshness.** Navigations are fetched with `cache: 'no-cache'`, and the precache is filled with `cache: 'reload'`. Neither relies on the host's HTTP caching, so a deploy shows up on the next launch.
 - **Installable web app (PWA), no app store.** It runs on iOS and Android from one codebase, works offline through a service worker, and keeps files in IndexedDB. WebKit deletes script-writable storage, IndexedDB included, after 7 days of Safari use without interaction with the site; Home Screen web apps are exempt ([WebKit: Tracking Prevention](https://webkit.org/tracking-prevention/)). The library therefore asks iOS users to add the app to the Home Screen.
 - **Hosting: Cloudflare Workers (static assets), not GitHub Pages.** Reasons, all checked on 2026-10-21:
   - **Own origin.** Browser storage is per origin. Every project site under `reloru.github.io` shares one origin, so any other Pages project on that account could read Bounce's IndexedDB song library. A Worker gets its own hostname.
-  - **Preview URLs.** Workers Builds gives every branch its own preview URL and posts it on the pull request ([docs](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)). GitHub Pages allows one site per repository, and its PR preview input is alpha and not public.
+  - **A server for the cloud tool.** The same Worker serves `/api/*` and drives a Container, which a static host cannot do.
   - **Response headers.** `public/_headers` sets them; GitHub Pages cannot (a GitHub staff answer in community discussion #84963). GitHub Pages also sends `max-age=600` on every file (measured).
   - **Cost.** Static-asset requests are free and unlimited ([Cloudflare docs](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)).
   - **Cloudflare's own guidance** is to "Start new projects with Workers" ([Pages docs](https://developers.cloudflare.com/pages/)). Pages also answers a missing asset with the HTML shell (observed), which a service worker could cache under a script URL. The Worker is set to `not_found_handling: "none"`, so missing files return a real 404.
@@ -86,6 +96,8 @@ These are automated and run in CI:
   - Select, cut, undo/redo, trim silence and fade.
   - Measure, normalise to −14 LUFS, and export MP3 320 and WAV 24-bit. ffmpeg independently measures the WAV at −14 ±0.15 LUFS with true peak ≤ −0.9 dBTP.
   - Persistence across reloads, and a full export while offline.
+  - Cloud tempo/pitch against a mocked API: the consent sheet, the uploaded WAV (format by ffprobe, peak at −6.02 dBFS by ffmpeg's `astats`), the new project's length and layer level, the DELETE after download, and the error path. Under `wrangler dev`: `/api` reaches the Worker while other paths still come from the asset server.
+- **Cloud server (Docker, `npm run test:container`):** the container directly and through the Worker and Durable Objects under `wrangler dev`. Pitch shifts of +2 and −3 semitones on a 440 Hz tone are within 0.5 Hz of 440·2^(n/12), measured by counting zero crossings in ffmpeg-decoded output. A ×1.25 tempo change gives 8.00 s from 10 s. Progress never decreases. Also covered: validation errors, unknown ids (no container started), removal of the container on DELETE, the daily limit and the per-IP rate limit.
 
 ## 6. Known limitations and open questions
 
@@ -94,12 +106,14 @@ These are automated and run in CI:
 - **Memory.** Decoded audio is 32-bit float, so 8 minutes of 48 kHz stereo is 8·60·48000·2·4 B ≈ 184 MB per layer. Twelve such stems is about 2.2 GB, which may exceed a phone browser's limit. Two stems (vocals and instrumental) are about 370 MB.
 - **The beat tracker has only been evaluated on synthetic grooves.** Songs with tempo drift or rubato may need the ×2/÷2 and bar-phase controls, or snapping turned off.
 - **Waveform display of stems** sums per-layer peak envelopes, which is an upper bound and not the exact mixed waveform.
+- **The cloud tool has not run on Cloudflare yet.** It was tested with `wrangler dev` and Docker only. Unverified until the first deploy: production behaviour of the upload forwarding (a `FixedLengthStream` supplies the `Content-Length` the container server needs), processing time on Cloudflare's CPUs, and whether the deploy token needs a permission beyond the "Edit Cloudflare Workers" template to push the container image.
+- **Rubber Band quality on real Suno songs** has not been listened to; only synthetic tones and noise were measured.
 
 ## 7. Roadmap candidates
 
 Lossless MP3 trimming at frame boundaries for trim-only edits; key detection; a reverb for "slowed + reverb"; `file_handlers` for desktop "Open with".
 
-**Optional cloud tools on Cloudflare Containers.** The owner has the Workers Paid plan. This would break the "nothing is uploaded" promise for the feature that uses it, so it could only ever be an explicit opt-in.
+**Cloud tools on Cloudflare Containers.** Tempo and pitch are built (§4). The facts below were the basis for it, and apply to any further server tool. The owner has the Workers Paid plan. Any such tool breaks the "nothing is uploaded" promise for the feature that uses it, so it must stay an explicit opt-in.
 
 | Fact | Source |
 |---|---|
@@ -116,4 +130,4 @@ Measured job times for a 4-minute song on 4 vCPUs (from the research run, not on
 
 Derived from those numbers, not stated by Cloudflare: the memory allowance gives about 6 instance-hours a month on standard-1 (4 GiB), so hundreds of short tempo or pitch jobs fit, provided the instance sleeps soon after each job.
 
-The candidate worth building is **studio-grade tempo and pitch change** (Rubber Band on the server). Stem separation adds little because Suno already provides stems. ffmpeg's `loudnorm` adds nothing over the on-device normaliser: its linear mode applies only a gain, and only when no limiting would be needed.
+Stem separation adds little because Suno already provides stems. ffmpeg's `loudnorm` adds nothing over the on-device normaliser: its linear mode applies only a gain, and only when no limiting would be needed.

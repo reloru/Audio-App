@@ -7,11 +7,12 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p worker/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:container": "vitest run -c vitest.container.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:cf": "E2E_HOST=cloudflare playwright test",
     "preview:cf": "vite build && wrangler dev",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@babel/core": "7.29.7",
+    "@cloudflare/workers-types": "5.20261006.1",
     "@playwright/test": "1.56.1",
     "@preact/preset-vite": "2.10.6",
     "@types/node": "24.19.2",

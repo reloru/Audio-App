@@ -31,6 +31,7 @@ import { MixPanel } from './panels/MixPanel';
 import { SoundPanel } from './panels/SoundPanel';
 import { LoudnessPanel } from './panels/LoudnessPanel';
 import { ExportPanel } from './panels/ExportPanel';
+import type { CreatedProject } from './importer';
 
 export function useStore(store: EditorStore): number {
   const [v, setV] = useState(store.version);
@@ -46,7 +47,7 @@ const TABS: { id: Tab; label: string; icon: () => preact.JSX.Element }[] = [
   { id: 'export', label: 'Export', icon: () => <IconExport /> },
 ];
 
-export function Editor({ store, onBack }: { store: EditorStore; onBack: () => void }) {
+export function Editor({ store, onBack, onOpen }: { store: EditorStore; onBack: () => void; onOpen: (c: CreatedProject) => void }) {
   useStore(store);
   const [renaming, setRenaming] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -112,7 +113,7 @@ export function Editor({ store, onBack }: { store: EditorStore; onBack: () => vo
           <div class="panel-inner">
             {store.tab === 'edit' && <EditPanel store={store} />}
             {store.tab === 'mix' && <MixPanel store={store} />}
-            {store.tab === 'sound' && <SoundPanel store={store} />}
+            {store.tab === 'sound' && <SoundPanel store={store} onOpen={onOpen} />}
             {store.tab === 'loudness' && <LoudnessPanel store={store} />}
             {store.tab === 'export' && <ExportPanel store={store} />}
           </div>

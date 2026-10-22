@@ -1,17 +1,43 @@
 {
-  // Static-assets-only Worker: no script, so every request is served from dist/ at no cost.
+  // Static assets plus one Worker for /api/* (cloud tempo/pitch). Every other request is served from
+  // dist/ by the asset server without running the Worker.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "bounce",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-06",
   "workers_dev": true,
-  // workers.dev Preview/Version URLs.
-  "preview_urls": true,
-  // Required (may be empty) by `wrangler preview`, the default Workers Builds command for
-  // non-production branches (Wrangler >= 4.135.0).
-  "previews": {},
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
     // A missing file must 404, never fall back to index.html (the service worker caches by URL).
     "not_found_handling": "none"
+  },
+  "containers": [
+    {
+      "class_name": "Stretcher",
+      "image": "./container/Dockerfile",
+      // 1/4 vCPU, 1 GiB, 4 GB disk (https://developers.cloudflare.com/containers/platform/limits/).
+      "instance_type": "basic",
+      "max_instances": 3
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "STRETCHER", "class_name": "Stretcher" },
+      { "name": "QUOTA", "class_name": "Quota" }
+    ]
+  },
+  "exports": {
+    "Stretcher": { "type": "durable-object", "storage": "sqlite" },
+    "Quota": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "ratelimits": [
+    // New jobs per client IP per minute, counted per Cloudflare location.
+    { "name": "JOB_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 4, "period": 60 } }
+  ],
+  "vars": {
+    // New jobs per UTC day across all users.
+    "DAILY_JOB_LIMIT": "100"
   }
 }

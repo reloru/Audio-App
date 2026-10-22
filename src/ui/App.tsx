@@ -12,10 +12,11 @@ export function App() {
   const [route, setRoute] = useState<Route>({ name: 'library' });
   const toasts = useToasts();
 
-  const openStore = (c: CreatedProject) => {
+  const openStore = (c: CreatedProject, replace = false) => {
     const store = new EditorStore(c.project, c.layers);
     setRoute({ name: 'editor', store });
-    history.pushState({ editor: c.project.id }, '');
+    if (replace) history.replaceState({ editor: c.project.id }, '');
+    else history.pushState({ editor: c.project.id }, '');
   };
 
   const open = async (id: string) => {
@@ -89,6 +90,10 @@ export function App() {
           onBack={() => {
             if (history.state?.editor) history.back();
             else back();
+          }}
+          onOpen={(c) => {
+            route.store.dispose();
+            openStore(c, true);
           }}
         />
       )}

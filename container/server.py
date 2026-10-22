@@ -16,7 +16,6 @@ import struct
 import subprocess
 import tempfile
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -93,7 +92,9 @@ def parse_params(query):
 
 def rubberband_args(tempo, pitch, formant, src, dst):
     # --fine selects the R3 engine (Rubber Band 3+), the higher-quality engine for mixed music.
-    args = [RUBBERBAND, "--fine"]
+    # --ignore-clipping: by default the CLI restarts with an unreported lower gain when the output
+    # clips; the app sends audio with headroom and compensates by a known amount instead.
+    args = [RUBBERBAND, "--fine", "--ignore-clipping"]
     if abs(tempo - 1) >= 1e-6:
         args += ["--tempo", f"{tempo:.6f}"]
     if abs(pitch) >= 1e-6:
@@ -104,11 +105,16 @@ def rubberband_args(tempo, pitch, formant, src, dst):
 
 
 PROGRESS_RE = re.compile(rb"(\d{1,3})%")
+# The CLI prints 0-99% twice: a study pass (about 0.1 s for 500 s of audio when measured) and then
+# the processing pass. Only the processing pass is reported.
+PROCESSING_MARK = b"Pass 2:"
 
 
 def run_job(tempo, pitch, formant):
     src = os.path.join(job.dir, "in.wav")
     dst = os.path.join(job.dir, "out.wav")
+    timed_out = threading.Event()
+    timer = None
     try:
         proc = subprocess.Popen(
             rubberband_args(tempo, pitch, formant, src, dst),
@@ -117,25 +123,42 @@ def run_job(tempo, pitch, formant):
         )
         with job.lock:
             job.proc = proc
-        started = time.monotonic()
-        buf = b""
+
+        def kill():
+            timed_out.set()
+            proc.kill()
+
+        timer = threading.Timer(JOB_TIMEOUT, kill)
+        timer.daemon = True
+        timer.start()
+        log = b""  # last 4 KB of stderr, for error messages
+        processing = False
         while True:
-            chunk = proc.stderr.read1(4096) if hasattr(proc.stderr, "read1") else proc.stderr.read(256)
+            chunk = proc.stderr.read1(4096)
             if not chunk:
                 break
-            buf = (buf + chunk)[-4096:]
+            # Rescan a few earlier bytes so a token split across two reads is read whole.
+            window_start = max(0, len(log) - 8)
+            log = log + chunk
+            window = log[window_start:]
+            log = log[-4096:]
+            if not processing:
+                mark = window.find(PROCESSING_MARK)
+                if mark < 0:
+                    continue
+                processing = True
+                window = window[mark:]
             m = None
-            for m in PROGRESS_RE.finditer(chunk):
+            for m in PROGRESS_RE.finditer(window):
                 pass
             if m:
                 with job.lock:
                     job.progress = min(0.99, int(m.group(1)) / 100)
-            if time.monotonic() - started > JOB_TIMEOUT:
-                proc.kill()
-                raise RuntimeError("processing took too long")
         code = proc.wait()
+        if timed_out.is_set():
+            raise RuntimeError("processing took too long")
         if code != 0 or not os.path.exists(dst):
-            tail = buf.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+            tail = log.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
             raise RuntimeError(f"rubberband failed ({code}) {tail[0][:200]}")
         os.remove(src)
         with job.lock:
@@ -144,6 +167,9 @@ def run_job(tempo, pitch, formant):
         with job.lock:
             if job.state != "idle":
                 job.state, job.error, job.proc = "error", str(e), None
+    finally:
+        if timer:
+            timer.cancel()
 
 
 def reset():
