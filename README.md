@@ -6,7 +6,7 @@ Bounce is a free, mobile-first web app for editing the MP3 and WAV files you dow
 
 ## Use it
 
-After the first deploy (see [Deploy](#deploy)), open **https://bounce.&lt;your-subdomain&gt;.workers.dev** on your phone. The `wrangler deploy` step of the deploy job prints the exact address in its log.
+Open **https://bounce.reloru.workers.dev** on your phone.
 
 - **iPhone / iPad (Safari):** Share → **Add to Home Screen**. This runs it full-screen like an app. It also keeps your projects safe: Safari clears website storage after 7 days without use, but Home Screen apps are exempt.
 - **Android (Chrome):** menu → **Install app**. Once installed, Bounce registers as a share target for audio files (the Web Share Target API), so you can share a file from another app straight into it. This hasn't been tested on a device yet.
@@ -54,7 +54,7 @@ The cloud server has integration tests that need Docker (`npm run test:container
 
 Playwright drives the built app on a phone-sized touch viewport: import, editing, loudness normalisation, MP3 and WAV export (with the exported files measured by ffmpeg), persistence, offline use, a check that the browser's own filters match the export filters, and the cloud tempo/pitch flow against a mocked API.
 
-Not yet tested: real Suno downloads (none were available while building), real iOS or Android devices (Chromium emulation only), and the cloud tool on Cloudflare itself. See the limitations in [docs/PRODUCT.md](docs/PRODUCT.md#6-known-limitations-and-open-questions).
+Not yet tested: real Suno downloads (none were available while building) and real iOS or Android devices (Chromium emulation only). The cloud tool has had one production run after the first deploy: a 10 s tone shifted by +2 semitones came back at the expected pitch and length. See the limitations in [docs/PRODUCT.md](docs/PRODUCT.md#6-known-limitations-and-open-questions).
 
 ## Develop
 
