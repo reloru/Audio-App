@@ -1,0 +1,35 @@
+{
+  "name": "bounce-audio-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mobile-first, offline web app for editing, mastering and exporting Suno MP3/WAV songs and stems.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:cf": "E2E_HOST=cloudflare playwright test",
+    "preview:cf": "vite build && wrangler dev",
+    "check": "npm run typecheck && npm test && vite build && playwright test"
+  },
+  "dependencies": {
+    "idb": "8.0.4",
+    "preact": "10.29.8",
+    "wasm-media-encoders": "0.7.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@playwright/test": "1.56.1",
+    "@preact/preset-vite": "2.10.6",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "wrangler": "4.148.0"
+  }
+}
