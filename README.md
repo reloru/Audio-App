@@ -37,7 +37,7 @@ Everything except **Tempo & pitch (cloud)** runs on the device. That tool asks b
 - The arranged song (clips, crossfades and the stem mix) is sent as one 16-bit WAV file to this app's Worker on Cloudflare. Tags, cover art and the rest of the project are not sent.
 - A container started for that job alone runs [Rubber Band](https://breakfastquay.com/rubberband/) on it, and the app downloads the result and opens it as a new project. The original project is not changed.
 - The app deletes the job, and its audio, as soon as the result has downloaded or when you cancel. If neither happens, the container stops about 5 minutes after the last request. Cloudflare discards a container's disk when it stops ([Containers FAQ](https://developers.cloudflare.com/containers/faq/#is-disk-persistent-what-happens-to-my-disk-when-my-container-sleeps)). Every job is also stopped 30 minutes after it starts.
-- Limits: songs up to 8 min 20 s and 100 MB, 4 new jobs per minute per IP address (counted separately in each Cloudflare location, so approximate: [rate limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)), and 100 jobs per day across all users.
+- Limits: songs up to 8 min 20 s and 100 MB, 4 new jobs per minute per IP address (counted separately in each Cloudflare location, so approximate: [rate limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)), and 100 jobs per day across all users. A job counts toward the daily limit once it passes the checks, even if the server is too busy to start it.
 
 ## How it is verified
 
